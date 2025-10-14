@@ -1,0 +1,315 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>[IDN] OMNI 369 KALKULATOR-AVERAGE</title>
+  <style>
+    :root{
+      --bg:#f4f7fb;--card:#ffffff;--text:#111827;--muted:#6b7280;--accent:#007bff;
+      --success:#0a7d2e;--danger:#dc3545;--surface:#eef6ff;
+    }
+    [data-theme="dark"]{
+      --bg:#0b1220;--card:#071224;--text:#e6eef6;--muted:#9aa4b2;--accent:#3aa0ff;
+      --success:#7be5a3;--danger:#ff8b94;--surface:#08303f;
+    }
+    body{font-family:Inter,ui-sans-serif,system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial; background:var(--bg); color:var(--text); margin:0; padding:18px;}
+    .container{max-width:1100px;margin:0 auto;background:var(--card);padding:20px;border-radius:12px;box-shadow:0 6px 18px rgba(2,6,23,0.08);}
+    h1{font-size:20px;margin:0 0 12px;text-align:center;}
+    .row{display:flex;flex-wrap:wrap;gap:10px;margin-bottom:10px;}
+    input{padding:8px;border-radius:8px;border:1px solid #d1d5db;flex:1;background:transparent;color:var(--text)}
+    input::placeholder{color:var(--muted)}
+    button{padding:9px 12px;border-radius:8px;border:0;cursor:pointer;background:var(--accent);color:white}
+    button.warn{background:#f59e0b;color:#08101a}
+    button.danger{background:var(--danger)}
+    table{width:100%;border-collapse:collapse;margin-top:10px}
+    th,td{border:1px solid rgba(0,0,0,0.06);padding:8px;text-align:center;font-size:13px}
+    th{background:var(--accent);color:white}
+    .card{border:1px solid rgba(2,6,23,0.04);border-radius:10px;padding:12px;margin-bottom:14px;background:linear-gradient(180deg, rgba(255,255,255,0.02), transparent)}
+    .small{font-size:13px;color:var(--muted)}
+    .result{background:var(--surface);padding:10px;border-radius:8px;margin-top:8px}
+    .status{font-size:13px;padding:6px 10px;border-radius:999px;display:inline-block}
+    .online{background:rgba(10,125,46,0.12);color:var(--success);border:1px solid rgba(10,125,46,0.18)}
+    .offline{background:rgba(220,53,69,0.08);color:var(--danger);border:1px solid rgba(220,53,69,0.12)}
+    #proxy-indicator{position:fixed;right:12px;bottom:12px;background:var(--surface);border:1px solid rgba(2,6,23,0.06);padding:8px 10px;border-radius:8px;color:var(--muted);font-size:13px;box-shadow:0 6px 18px rgba(2,6,23,0.06)}
+    .top-right{position:fixed;right:12px;top:12px;display:flex;gap:8px;align-items:center}
+    .toggle{display:flex;align-items:center;gap:8px;background:transparent;border-radius:999px;padding:6px}
+    /* toast */
+    #toast{position:fixed;left:50%;transform:translateX(-50%);bottom:80px;z-index:9999;display:flex;flex-direction:column;gap:8px}
+    .toast{background:var(--card);border:1px solid rgba(2,6,23,0.06);padding:10px 12px;border-radius:8px;box-shadow:0 6px 18px rgba(2,6,23,0.06);font-size:14px}
+    @media (max-width:640px){.row{flex-direction:column}input,button{width:100%}#proxy-indicator{left:10px;right:auto}}
+  </style>
+</head>
+<body>
+  <div class="top-right">
+    <div class="small">[IDN] OMNI 369</div>
+    <div class="toggle">
+      <label class="small" for="theme-toggle">Dark</label>
+      <input id="theme-toggle" type="checkbox" />
+    </div>
+  </div>
+
+  <div class="container">
+    <h1>OMNI 369 — Kalkulator Average Saham (Indonesia)</h1>
+
+    <div class="row">
+      <input id="input-emiten" placeholder="Kode Emiten (mis. BBCA atau TLKM)" />
+      <input id="input-harga" type="number" placeholder="Harga per lembar (Rp)" />
+      <input id="input-lot" type="number" placeholder="Lot (1 lot = 100 lembar)" />
+      <button onclick="tambahPembelian()">Tambah Pembelian</button>
+      <button class="danger" onclick="resetSemua()">Reset Semua</button>
+    </div>
+
+    <div id="daftarEmiten"></div>
+
+    <div style="margin-top:12px;" class="small muted">
+      Catatan: Fee beli 0.15%, fee jual 0.25%, PPh final 0.1%, Bea materai Rp10.000 per transaksi.
+      <br>Harga otomatis diperbarui tiap <b>30 detik</b> dari Yahoo Finance (.JK) dengan auto-proxy fallback.
+    </div>
+  </div>
+
+  <div id="proxy-indicator">Proxy aktif: <b>-</b></div>
+  <div id="toast"></div>
+
+<script>
+/* CONFIG */
+const UPDATE_INTERVAL = 30 * 1000; // 30 seconds
+const FEE_BELI=0.0015,FEE_JUAL=0.0025,PPH_FINAL=0.001,BEA_MATERAI=10000;
+const STORAGE_KEY="omni369_kalkulator_average_v1";
+let data = JSON.parse(localStorage.getItem(STORAGE_KEY) || "{}");
+
+/* THEME */
+const themeToggle = document.getElementById('theme-toggle');
+function applyTheme(t){
+  document.documentElement.setAttribute('data-theme', t);
+  localStorage.setItem('omni_theme', t);
+}
+(function initTheme(){
+  const saved = localStorage.getItem('omni_theme') || (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+  applyTheme(saved);
+  themeToggle.checked = (saved==='dark');
+})();
+themeToggle.addEventListener('change', ()=> applyTheme(themeToggle.checked ? 'dark' : 'light'));
+
+/* TOASTS */
+function toast(msg,ttl=3000){
+  const t = document.createElement('div'); t.className='toast'; t.textContent=msg;
+  document.getElementById('toast').appendChild(t);
+  setTimeout(()=> t.remove(), ttl);
+}
+
+/* STORAGE */
+function simpanData(){ localStorage.setItem(STORAGE_KEY, JSON.stringify(data)); }
+
+/* HELPERS */
+function toRp(n){ if(!isFinite(n)) return "-"; return "Rp"+Math.round(n).toLocaleString('id-ID'); }
+
+/* CRUD */
+function tambahPembelian(){
+  const kodeRaw = document.getElementById('input-emiten').value.trim();
+  const harga = parseFloat(document.getElementById('input-harga').value);
+  const lot = parseFloat(document.getElementById('input-lot').value);
+  if(!kodeRaw || !harga || !lot) return alert("Lengkapi semua kolom.");
+  const kode = kodeRaw.toUpperCase();
+  if(!data[kode]) data[kode] = { pembelian: [], marketPrice: null, updatedAt: null };
+  const lembar = lot * 100;
+  const nilai = harga * lembar;
+  const fee = nilai * FEE_BELI + BEA_MATERAI;
+  const totalBayar = nilai + fee;
+  data[kode].pembelian.push({ harga, lot, lembar, totalBayar, tanggal: new Date().toISOString() });
+  simpanData(); renderSemua();
+  document.getElementById('input-harga').value = ''; document.getElementById('input-lot').value = '';
+  toast(`Pembelian ${kode} ditambahkan`);
+}
+
+/* DELETE / RESET */
+function hapusPembelian(emiten,idx){ if(!confirm('Hapus pembelian ini?')) return; data[emiten].pembelian.splice(idx,1); if(data[emiten].pembelian.length===0) delete data[emiten]; simpanData(); renderSemua(); toast('Transaksi dihapus'); }
+function hapusEmiten(emiten){ if(!confirm(`Hapus semua data ${emiten}?`)) return; delete data[emiten]; simpanData(); renderSemua(); toast('Emitén dihapus'); }
+function resetSemua(){ if(!confirm('Reset semua data?')) return; data={}; simpanData(); renderSemua(); toast('Semua data di-reset'); }
+
+/* CALCULATIONS */
+function hitungStat(emiten){
+  const list = data[emiten].pembelian || [];
+  let totalModal=0, totalLembar=0;
+  list.forEach(p=>{ totalModal+=p.totalBayar; totalLembar+=p.lembar; });
+  const avg = totalLembar>0 ? totalModal/totalLembar : 0;
+  return { avg, totalModal, totalLembar };
+}
+
+function hitungJual(emiten){
+  const hargaJual = parseFloat(document.getElementById(`jual-${emiten}`).value);
+  if(!hargaJual) return alert('Masukkan harga jual.');
+  const { avg, totalModal, totalLembar } = hitungStat(emiten);
+  if(totalLembar===0) return;
+  const nilaiJual = hargaJual * totalLembar;
+  const totalFeeJual = nilaiJual * (FEE_JUAL + PPH_FINAL) + BEA_MATERAI;
+  const hasilBersih = nilaiJual - totalFeeJual;
+  const labaRugi = hasilBersih - totalModal;
+  document.getElementById(`hasilJual-${emiten}`).innerHTML = `
+    <div>Nilai jual: ${toRp(nilaiJual)}</div>
+    <div>Fee & pajak: ${toRp(Math.round(totalFeeJual))}</div>
+    <div>Hasil bersih: ${toRp(Math.round(hasilBersih))}</div>
+    <div>Laba/Rugi: <b style="color:${labaRugi>=0 ? 'green' : 'red'}">${toRp(Math.round(labaRugi))}</b></div>
+  `;
+}
+
+/* SIMULASI AVERAGE REVERSE */
+function simulasiReverse(emiten){
+  const target = parseFloat(document.getElementById(`targetAvg-${emiten}`).value);
+  const hargaTambah = parseFloat(document.getElementById(`priceAdd-${emiten}`).value);
+  const { avg, totalModal, totalLembar } = hitungStat(emiten);
+  if(!target || !hargaTambah || totalLembar===0) return alert('Lengkapi data reverse.');
+  const S=totalLembar, C=totalModal, A=target, P=hargaTambah, f=FEE_BELI, m=BEA_MATERAI;
+  const denom = (P*(1+f) - A), numer = (A*S - C - m);
+  if(denom<=0) return document.getElementById(`hasilReverse-${emiten}`).innerHTML = "<div style='color:#9b2a2a'>Target tidak bisa dicapai dengan harga ini.</div>";
+  const x = numer/denom;
+  if(x<=0) return document.getElementById(`hasilReverse-${emiten}`).innerHTML = "<div style='color:green'>Tidak perlu pembelian tambahan.</div>";
+  const lots = Math.ceil(x/100), lembar = lots*100;
+  const nilai = P*lembar, fee = nilai*f, totalBayar = nilai + fee + m;
+  const newAvg = (C + totalBayar) / (S + lembar);
+  document.getElementById(`hasilReverse-${emiten}`).innerHTML = `
+    <div>Perlu beli: <b>${lots} lot (${lembar} lembar)</b></div>
+    <div>Total biaya: ${toRp(Math.round(totalBayar))}</div>
+    <div>Average baru: <b>${toRp(Math.round(newAvg))}</b></div>
+  `;
+}
+
+/* PROXY FALLBACK SETUP */
+const proxies = [
+  {name:"ThingProxy", fn:(u)=>`https://thingproxy.freeboard.io/fetch/${u}`},
+  {name:"AllOrigins", fn:(u)=>`https://api.allorigins.win/raw?url=${encodeURIComponent(u)}`},
+  {name:"CORS Anywhere", fn:(u)=>`https://cors-anywhere.herokuapp.com/${u}`}
+];
+let activeProxyName = "-";
+function setActiveProxy(name){ activeProxyName = name; document.getElementById('proxy-indicator').innerHTML = `Proxy aktif: <b>${activeProxyName}</b>`; }
+
+/* FETCH with fallback */
+async function fetchWithFallback(url){
+  for(let i=0;i<proxies.length;i++){
+    const p = proxies[i];
+    try{
+      const proxyURL = p.fn(url);
+      const res = await fetch(proxyURL);
+      if(!res.ok) throw new Error('HTTP '+res.status);
+      // some proxies return raw JSON, some return string wrapped; try to parse robustly
+      let parsed;
+      try{ parsed = await res.json(); }
+      catch(err){
+        // If proxy returned text wrapping JSON (like allorigins), try to parse contents
+        const txt = await res.text();
+        try{ parsed = JSON.parse(txt); }
+        catch(e){ throw new Error('Parse error'); }
+      }
+      setActiveProxy(p.name);
+      toast(`Harga update via ${p.name}`, 2000);
+      return parsed;
+    }catch(err){
+      console.warn(`Proxy ${p.name} gagal:`, err);
+      // try next
+    }
+  }
+  throw new Error('Semua proxy gagal');
+}
+
+/* FETCH PRICE */
+async function fetchPrice(emiten){
+  const symbol = emiten.endsWith('.JK') ? emiten : emiten + '.JK';
+  const target = `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${symbol}`;
+  try{
+    const parsed = await fetchWithFallback(target);
+    // parsed may be raw or wrapped; get quoteResponse
+    let result = parsed.quoteResponse?.result?.[0];
+    if(!result){
+      // if wrapper (like allorigins) returned {contents: "..."} with inner JSON
+      if(parsed.contents){
+        try{
+          const inner = JSON.parse(parsed.contents);
+          result = inner.quoteResponse?.result?.[0];
+        }catch(e){}
+      }
+    }
+    if(!result) throw new Error('No result');
+    const price = result.regularMarketPrice;
+    data[emiten].marketPrice = price;
+    data[emiten].updatedAt = new Date().toISOString();
+    simpanData(); renderSemua();
+    toast(`${emiten} harga ${toRp(price)}`, 2500);
+  }catch(e){
+    console.warn('fetchPrice error', e);
+    const el = document.getElementById(`status-${emiten}`);
+    if(el){ el.className = 'status offline'; el.textContent = 'Offline / gagal update'; }
+    toast(`Gagal update ${emiten}`, 2500);
+  }
+}
+
+/* AUTO UPDATE */
+let autoTimer = null;
+function startAutoUpdate(){
+  // initial staggered fetch
+  Object.keys(data).forEach((em,idx)=> setTimeout(()=> fetchPrice(em), idx*300));
+  if(autoTimer) clearInterval(autoTimer);
+  autoTimer = setInterval(()=>{
+    Object.keys(data).forEach((em,idx)=> setTimeout(()=> fetchPrice(em), idx*300));
+  }, UPDATE_INTERVAL);
+}
+
+/* RENDER UI */
+function renderSemua(){
+  const container = document.getElementById('daftarEmiten');
+  container.innerHTML = '';
+  const keys = Object.keys(data);
+  if(keys.length===0){
+    container.innerHTML = "<p style='text-align:center;color:var(--muted)'>Belum ada emiten.</p>";
+    return;
+  }
+  keys.forEach(em=>{
+    const {avg, totalModal, totalLembar} = hitungStat(em);
+    const mprice = data[em].marketPrice;
+    const updated = data[em].updatedAt ? new Date(data[em].updatedAt).toLocaleString() : '-';
+    const profit = mprice ? (mprice - avg) * totalLembar : 0;
+    const percent = mprice ? ((mprice - avg) / avg * 100).toFixed(2) : 0;
+    let rows = '';
+    (data[em].pembelian||[]).forEach((p,i)=>{
+      rows += `<tr><td>${i+1}</td><td>${toRp(p.harga)}</td><td>${p.lot}</td><td>${p.lembar}</td><td>${toRp(Math.round(p.totalBayar))}</td><td><button class="danger" onclick="hapusPembelian('${em}',${i})">Hapus</button></td></tr>`;
+    });
+    container.innerHTML += `
+      <div class="card">
+        <div style="display:flex;justify-content:space-between;align-items:center;">
+          <div><b>${em}</b></div>
+          <div id="status-${em}" class="status ${mprice?'online':'offline'}">${mprice? 'Online • ' + updated : 'Belum update'}</div>
+        </div>
+        <div class="small">
+          Harga pasar: <b>${mprice?toRp(mprice):'-'}</b> | Average: <b>${avg?toRp(Math.round(avg)):'-'}</b><br>
+          Modal: ${toRp(Math.round(totalModal))} | Lembar: ${totalLembar}
+          ${mprice? `<br><b style="color:${profit>=0?'green':'red'}">(${percent}%) ${toRp(Math.round(profit))}</b>` : ''}
+        </div>
+        <table><thead><tr><th>#</th><th>Harga</th><th>Lot</th><th>Lembar</th><th>Total</th><th>Aksi</th></tr></thead><tbody>${rows}</tbody></table>
+        <div class="row" style="margin-top:10px;">
+          <input id="jual-${em}" placeholder="Harga jual per lembar" />
+          <button onclick="hitungJual('${em}')">Simulasi Jual</button>
+          <button class="warn" onclick="fetchPrice('${em}')">Fetch Sekarang</button>
+          <button class="danger" onclick="hapusEmiten('${em}')">Hapus Emiten</button>
+        </div>
+        <div id="hasilJual-${em}" class="result"></div>
+        <hr>
+        <div class="row">
+          <input id="targetAvg-${em}" placeholder="Target average (Rp)" />
+          <input id="priceAdd-${em}" placeholder="Harga beli tambahan (Rp)" />
+          <button onclick="simulasiReverse('${em}')">Hitung Reverse</button>
+        </div>
+        <div id="hasilReverse-${em}" class="result"></div>
+      </div>
+    `;
+  });
+  // update proxy indicator
+  document.getElementById('proxy-indicator').innerHTML = `Proxy aktif: <b>${activeProxyName}</b>`;
+}
+
+/* INIT */
+document.addEventListener('DOMContentLoaded', ()=>{
+  renderSemua();
+  startAutoUpdate();
+});
+</script>
+</body>
+</html>
